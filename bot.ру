@@ -1,0 +1,70 @@
+from aiogram import Bot, Dispatcher, types
+from aiogram.utils import executor
+import logging
+
+# Включаем логи для отладки
+logging.basicConfig(level=logging.INFO)
+
+# 👉 Вставь сюда токен, который тебе даст @BotFather
+API_TOKEN = "ТОКЕН_ОТ_BOTFATHER"
+
+# 👉 ID группы (как получить — инструкция ниже)
+GROUP_ID = -1001234567890  
+
+# 👉 Список админов/совладельцев (твои Telegram ID и ID тех, кому даёшь доступ)
+ADMINS = [123456789, 987654321]
+
+# Создаём бота
+bot = Bot(token=API_TOKEN, parse_mode="HTML")
+dp = Dispatcher(bot)
+
+# Хранилище пользователей (сюда будут добавляться те, кто писал боту)
+users = set()
+
+# === 1. Пользователь пишет боту → пересылаем в группу ===
+@dp.message_handler(content_types=types.ContentTypes.ANY)
+async def user_message(message: types.Message):
+    if message.chat.type == "private":
+        users.add(message.chat.id)
+        # Сообщение с информацией о пользователе
+        await bot.send_message(
+            GROUP_ID,
+            f"📩 Сообщение от <b>{message.from_user.full_name}</b> "
+            f"(id: {message.chat.id}):"
+        )
+        # Пересылаем само сообщение
+        await bot.forward_message(GROUP_ID, message.chat.id, message.message_id)
+
+# === 2. Ответ из группы → отправляем пользователю ===
+@dp.message_handler(lambda m: m.chat.id == GROUP_ID and m.reply_to_message)
+async def group_reply(message: types.Message):
+    text = message.reply_to_message.text
+    if text and "id:" in text:
+        try:
+            user_id = int(text.split("id:")[1].split(")")[0])
+            await bot.send_message(user_id, f"💬 Ответ из группы:\n{message.text}")
+        except:
+            await message.reply("❌ Не удалось отправить сообщение пользователю")
+
+# === 3. Рассылка (/broadcast текст) ===
+@dp.message_handler(commands=["broadcast"])
+async def broadcast(message: types.Message):
+    if message.from_user.id not in ADMINS:
+        return await message.reply("❌ У вас нет прав на рассылку")
+
+    text = message.get_args()
+    if not text:
+        return await message.reply("Напиши текст: /broadcast <текст>")
+
+    count = 0
+    for user in list(users):
+        try:
+            await bot.send_message(user, f"📢 {text}")
+            count += 1
+        except:
+            pass
+    await message.reply(f"✅ Рассылка отправлена {count} пользователям.")
+
+# === 4. Старт бота ===
+if __name__ == "__main__":
+    executor.start_polling(dp, skip_updates=True)
